@@ -47,7 +47,13 @@ The repo includes a Docker smoke test that simulates a fresh machine, installs t
 npm run test:docker
 ```
 
-The test does not use real provider credentials or your local Pi config.
+There is also a real-Pi package-loading test. It installs the actual Pi CLI in Docker, installs this package into Pi, verifies `pi list`, and verifies Pi accepts the extension path:
+
+```bash
+npm run test:real-pi
+```
+
+The tests do not use real provider credentials or your local Pi config.
 
 ## Quick start
 
@@ -79,6 +85,8 @@ Check usage and selection:
 ```bash
 pi-pool usage       # or: pi-pool --usage
 pi-pool status      # or: pi-pool --status
+pi-pool auth-status
+pi-pool doctor
 pi-pool which       # or: pi-pool --which
 ```
 
@@ -242,7 +250,7 @@ If a provider has no usage endpoint, set:
 "usage": { "type": "none" }
 ```
 
-The extension will still record cooldowns from 429 responses and manual `/pool-cooldown` commands.
+The extension will still record cooldowns from 429 responses and manual `/pool-cooldown` commands. Example provider configs live in `examples/providers/`.
 
 ## Status states
 
@@ -254,6 +262,19 @@ The extension will still record cooldowns from 429 responses and manual `/pool-c
 - `limited` — provider says the account is not usable and did not provide a reset window, for example depleted workspace credits.
 - `disabled` — manually disabled.
 - `unknown` — no usage has been fetched yet.
+
+Fresh usage checks override old heuristic cooldowns. `setup` writes a timestamped backup next to the config file before changing an existing config. Config writes are atomic and protected by a short-lived lock to avoid common concurrent-launch races.
+
+## Troubleshooting
+
+Use:
+
+```bash
+pi-pool doctor
+pi-pool auth-status
+```
+
+`doctor` checks the active provider, configured accounts, missing auth files, and the project session directory for the current cwd. `auth-status` lists each account's `auth.json` path and whether auth is present.
 
 Fresh usage checks override old heuristic cooldowns. For example, if an account was previously cooled down but the provider now reports `allowed: true`, `pi-pool usage` or normal launch clears the old cooldown.
 

@@ -17,7 +17,34 @@ const lowUsageWarningPercent = 95;
 function now() { return Date.now(); }
 function mkdirp(p) { fs.mkdirSync(p, { recursive: true, mode: 0o700 }); }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-function writeJson(file, data) { mkdirp(path.dirname(file)); fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 }); }
+function writeJson(file, data) {
+  mkdirp(path.dirname(file));
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+function sleepSync(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+function withConfigLock(fn) {
+  if (process.env.PI_POOL_NO_LOCK === '1') return fn();
+  const lockDir = `${configFile}.lock`;
+  const start = now();
+  while (true) {
+    try {
+      fs.mkdirSync(lockDir, { mode: 0o700 });
+      try { return fn(); } finally { try { fs.rmdirSync(lockDir); } catch {} }
+    } catch (e) {
+      if (now() - start > 5000) throw new Error(`Timed out waiting for config lock: ${lockDir}`);
+      sleepSync(50);
+    }
+  }
+}
+function backupConfig(reason = 'backup') {
+  if (!fs.existsSync(configFile)) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backup = `${configFile}.${reason}.${stamp}.bak`;
+  fs.copyFileSync(configFile, backup);
+  return backup;
+}
 function expandHome(s) { return typeof s === 'string' && s.startsWith('~/') ? path.join(home, s.slice(2)) : s; }
 function iso(ms) { return ms ? new Date(ms).toISOString() : '-'; }
 function relSeconds(s) {
@@ -60,6 +87,7 @@ function defaultOpenAiProvider(ids = defaultIds) {
   return {
     type: 'openai-codex',
     authKey: 'openai-codex',
+    labels: { primary: '5h', secondary: 'weekly' },
     accountDirTemplate: path.join(defaultAccountsRoot, 'openai-{{id}}'),
     accounts: ids.map((id) => ({ id, enabled: true, cooldownUntil: null, lastUsedAt: null })),
     usage: {
@@ -126,10 +154,11 @@ function load() {
   save(cfg);
   return cfg;
 }
-function save(cfg) { writeJson(configFile, cfg); }
+function save(cfg) { return withConfigLock(() => writeJson(configFile, cfg)); }
 function provider(cfg, name = cfg.activeProvider) {
   const p = cfg.providers?.[name];
   if (!p) throw new Error(`Unknown provider '${name}'. Known: ${Object.keys(cfg.providers || {}).join(', ')}`);
+  if ((p.type === 'openai-codex' || name === 'openai-codex') && !p.labels) p.labels = { primary: '5h', secondary: 'weekly' };
   return p;
 }
 function accountDir(p, acct) { return expandHome(acct.dir || renderTemplate(p.accountDirTemplate || path.join(defaultAccountsRoot, `${p.type || 'account'}-{{id}}`), { account: acct, id: acct.id })); }
@@ -259,7 +288,7 @@ async function refreshUsage(cfg, p, ids = null, opts = {}) {
   }));
   if (!opts.quiet) {
     for (const acct of selected) {
-      process.stderr.write(`[pi-pool] usage ${p.type || cfg.activeProvider}/${acct.id}: ${usageSummary(acct)}\n`);
+      process.stderr.write(`[pi-pool] usage ${p.type || cfg.activeProvider}/${acct.id}: ${usageSummary(acct, p)}\n`);
     }
   }
   save(cfg);
@@ -287,14 +316,16 @@ function choose(p) {
   choices.sort((a, b) => score(b) - score(a) || (a.lastUsedAt || 0) - (b.lastUsedAt || 0) || String(a.id).localeCompare(String(b.id)));
   return choices[0] || null;
 }
-function usageSummary(acct) {
+function usageLabels(p) { return { primary: p.labels?.primary || 'primary', secondary: p.labels?.secondary || 'secondary' }; }
+function usageSummary(acct, p = {}) {
   if (acct.usageError) return `usage error: ${acct.usageError}`;
   const u = acct.usage;
   if (!u) return fs.existsSync(path.join(acct.dir || '', 'auth.json')) ? 'usage unknown' : 'not logged in';
   if (u.limitReachedType && !Number.isFinite(u.primaryUsedPercent) && !Number.isFinite(u.secondaryUsedPercent)) return `limit: ${u.limitReachedType}`;
+  const labels = usageLabels(p);
   const parts = [];
-  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`primary ${Math.round(u.primaryUsedPercent)}% used, resets in ${relSeconds(u.primaryResetAfterSeconds)}`);
-  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`weekly ${Math.round(u.secondaryUsedPercent)}% used, resets in ${relSeconds(u.secondaryResetAfterSeconds)}`);
+  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`${labels.primary} ${Math.round(u.primaryUsedPercent)}% used, resets in ${relSeconds(u.primaryResetAfterSeconds)}`);
+  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`${labels.secondary} ${Math.round(u.secondaryUsedPercent)}% used, resets in ${relSeconds(u.secondaryResetAfterSeconds)}`);
   return parts.join('; ') || 'usage unknown';
 }
 function accountState(a) {
@@ -317,7 +348,8 @@ function printStatus(cfg, p) {
   console.log(`Sessions: ${cfg.sharedSessionDir}`);
   console.log(`Strategy: ${cfg.strategy}`);
   console.log('');
-  console.log('Acct  State     Primary window                 Weekly/secondary              Note');
+  const labels = usageLabels(p);
+  console.log(`Acct  State     ${labels.primary.padEnd(29)}  ${labels.secondary.padEnd(28)}  Note`);
   console.log('----  --------  -----------------------------  ----------------------------  ------------------------------');
   for (const a of p.accounts) {
     if (a.cooldownUntil && a.cooldownUntil <= now()) a.cooldownUntil = null;
@@ -337,7 +369,7 @@ function launchPi(cfg, p, acct, piArgs) {
   const cwd = process.cwd();
   const projectSessionDir = sessionDirForCwd(cfg.sharedSessionDir, cwd);
   mkdirp(projectSessionDir);
-  console.error(`[pi-pool] provider=${cfg.activeProvider} account=${acct.id} ${usageSummary(acct)}`);
+  console.error(`[pi-pool] provider=${cfg.activeProvider} account=${acct.id} ${usageSummary(acct, p)}`);
   console.error(`[pi-pool] dir=${accountDir(p, acct)}`);
   console.error(`[pi-pool] shared session root=${cfg.sharedSessionDir}`);
   console.error(`[pi-pool] project session dir=${projectSessionDir}`);
@@ -346,8 +378,41 @@ function launchPi(cfg, p, acct, piArgs) {
   if (result.error) { console.error(`[pi-pool] failed to launch pi: ${result.error.message}`); process.exit(127); }
   process.exit(result.status ?? 0);
 }
+
+function authStatus(cfg, p) {
+  console.log(`Provider: ${cfg.activeProvider}`);
+  console.log('Acct  Auth     Path');
+  console.log('----  -------  ----');
+  for (const acct of p.accounts || []) {
+    const file = authPath(p, acct);
+    const auth = readAuth(p, acct);
+    const status = auth ? 'present' : 'missing';
+    console.log(`${String(acct.id).padEnd(4)}  ${status.padEnd(7)}  ${file}`);
+  }
+}
+function doctor(cfg, p) {
+  const issues = [];
+  const cli = process.argv[1];
+  console.log('pi-account-pool doctor');
+  console.log(`CLI:      ${cli}`);
+  console.log(`Config:   ${configFile} ${fs.existsSync(configFile) ? 'OK' : 'MISSING'}`);
+  console.log(`Provider: ${cfg.activeProvider}`);
+  console.log(`Sessions: ${cfg.sharedSessionDir}`);
+  console.log(`Accounts: ${(p.accounts || []).length}`);
+  if (!fs.existsSync(configFile)) issues.push('config missing');
+  if (!p.accounts || p.accounts.length === 0) issues.push('no accounts configured');
+  for (const acct of p.accounts || []) {
+    if (!readAuth(p, acct)) issues.push(`missing auth for ${acct.id}`);
+  }
+  const cwd = process.cwd();
+  const projectDir = sessionDirForCwd(cfg.sharedSessionDir, cwd);
+  console.log(`Project session dir for cwd: ${projectDir}`);
+  console.log(issues.length ? `Issues:\n- ${issues.join('\n- ')}` : 'No obvious issues found.');
+  return issues.length ? 1 : 0;
+}
 function setupCommand(args) {
   const parsed = parseArgs(args);
+  const backup = backupConfig('setup');
   const providerName = parsed._[0] || parsed.provider || 'openai-codex';
   const ids = (parsed.accounts ? parsed.accounts.split(',') : defaultIds).map((s) => s.trim()).filter(Boolean);
   const cfg = fs.existsSync(configFile) ? load() : defaultConfig();
@@ -362,7 +427,7 @@ function setupCommand(args) {
       usage: parsed['usage-url'] ? { type: 'http', url: parsed['usage-url'], headers: { Authorization: 'Bearer {{auth.access}}' }, paths: {} } : { type: 'none' }
     };
   }
-  ensureDirs(cfg); save(cfg); console.log(`Configured ${providerName} in ${configFile}`);
+  ensureDirs(cfg); save(cfg); console.log(`Configured ${providerName} in ${configFile}`); if (backup) console.log(`Backup: ${backup}`);
 }
 function help() { console.log(`pi-account-pool
 
@@ -371,6 +436,8 @@ Usage:
   pi-pool login <id>
   pi-pool usage [id]
   pi-pool status
+  pi-pool auth-status
+  pi-pool doctor
   pi-pool which
   pi-pool account <id> [pi args...]
   pi-pool cooldown <id> [minutes]
@@ -381,6 +448,7 @@ Examples:
   pi-pool setup openai-codex --accounts 1,2,3,4,5,6,7,8,9,a
   pi-pool login 1     # then run /login inside pi
   pi-pool usage
+  pi-pool doctor
   pi-pool -c
 `); }
 async function main() {
@@ -397,6 +465,8 @@ async function main() {
   if (cmd === 'setup' || cmd === '--setup') return setupCommand(raw.slice(1));
   const cfg = load(), p = provider(cfg);
   if (cmd === 'status' || cmd === '--status') return printStatus(cfg, p);
+  if (cmd === 'auth-status' || cmd === '--auth-status') return authStatus(cfg, p);
+  if (cmd === 'doctor' || cmd === '--doctor') { const code = doctor(cfg, p); process.exitCode = code; return; }
   if (cmd === 'usage' || cmd === '--usage') { const id = raw[1]; if (id) findAcct(p, id); await refreshUsage(cfg, p, id ? [id] : null, { force: true }); return printStatus(cfg, p); }
   if (cmd === 'which' || cmd === '--which') { await refreshUsage(cfg, p, null, { quiet: true }); const acct = choose(p); if (!acct) process.exit(2); console.log(acct.id); return; }
   if (cmd === 'login' || cmd === '--login') return launchPi(cfg, p, findAcct(p, raw[1]), []);

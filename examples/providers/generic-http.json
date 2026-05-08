@@ -1,0 +1,25 @@
+{
+  "type": "my-provider",
+  "authKey": "my-provider-auth-key-in-auth-json",
+  "accountDirTemplate": "~/.pi/accounts/my-provider-{{id}}",
+  "labels": { "primary": "short", "secondary": "weekly" },
+  "accounts": [
+    { "id": "primary", "enabled": true },
+    { "id": "secondary", "enabled": true }
+  ],
+  "usage": {
+    "type": "http",
+    "url": "https://example.com/usage",
+    "headers": {
+      "Authorization": "Bearer {{auth.access}}"
+    },
+    "paths": {
+      "allowed": "limits.allowed",
+      "primaryUsedPercent": "limits.short.used_percent",
+      "primaryResetAfterSeconds": "limits.short.reset_after_seconds",
+      "secondaryUsedPercent": "limits.weekly.used_percent",
+      "secondaryResetAfterSeconds": "limits.weekly.reset_after_seconds",
+      "limitReached": "limits.limit_reached"
+    }
+  }
+}

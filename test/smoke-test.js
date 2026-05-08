@@ -71,6 +71,15 @@ const which = run(['--which']);
 assert.equal(which.stdout.trim(), 'two');
 assert.equal(logs().length, 0);
 
+const authStatus = run(['auth-status']);
+assert.match(authStatus.stdout, /one\s+present/);
+assert.match(authStatus.stdout, /two\s+present/);
+assert.equal(logs().length, 0);
+
+const doctor = run(['doctor']);
+assert.match(doctor.stdout, /No obvious issues found/);
+assert.equal(logs().length, 0);
+
 // Normal launch picks the best account and forwards args to pi.
 run(['-c']);
 const [launch] = logs();

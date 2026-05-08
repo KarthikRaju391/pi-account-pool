@@ -25,7 +25,7 @@ type Account = {
 type PoolConfig = {
   activeProvider?: string;
   defaultCooldownMinutes?: number;
-  providers?: Record<string, { accounts: Account[] }>;
+  providers?: Record<string, { type?: string; labels?: { primary?: string; secondary?: string }; accounts: Account[] }>;
   // Legacy prototype shape:
   accounts?: Account[];
 };
@@ -66,15 +66,22 @@ function relSeconds(s?: number): string {
   if (h) return `${h}h${String(m).padStart(2, "0")}m`;
   return `${m}m`;
 }
-function summary(account: Account | undefined): string {
+function labels(config: PoolConfig | null): { primary: string; secondary: string } {
+  const provider = config?.providers?.[providerName()];
+  if (provider?.labels) return { primary: provider.labels.primary || 'primary', secondary: provider.labels.secondary || 'secondary' };
+  if (provider?.type === 'openai-codex' || providerName() === 'openai-codex') return { primary: '5h', secondary: 'weekly' };
+  return { primary: 'primary', secondary: 'secondary' };
+}
+function summary(account: Account | undefined, config: PoolConfig | null = readConfig()): string {
   if (!account) return "pool acct unknown";
   if (account.usageError) return `acct ${account.id} usage error`;
   const u = account.usage;
   if (!u) return `acct ${account.id} usage unknown`;
   if (u.limitReachedType && !Number.isFinite(u.primaryUsedPercent) && !Number.isFinite(u.secondaryUsedPercent)) return `acct ${account.id} limit ${u.limitReachedType}`;
+  const l = labels(config);
   const parts = [`acct ${account.id}`];
-  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`primary ${Math.round(u.primaryUsedPercent!)}%/${relSeconds(u.primaryResetAfterSeconds)}`);
-  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`secondary ${Math.round(u.secondaryUsedPercent!)}%/${relSeconds(u.secondaryResetAfterSeconds)}`);
+  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`${l.primary} ${Math.round(u.primaryUsedPercent!)}%/${relSeconds(u.primaryResetAfterSeconds)}`);
+  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`${l.secondary} ${Math.round(u.secondaryUsedPercent!)}%/${relSeconds(u.secondaryResetAfterSeconds)}`);
   return parts.join(" · ");
 }
 function retryAfterToMs(value: unknown): number | null {
@@ -117,7 +124,7 @@ function format(ms: number): string { return new Date(ms).toLocaleString(); }
 
 export default function (pi: ExtensionAPI) {
   const updateStatus = (ctx: any) => {
-    if (accountId()) ctx.ui.setStatus("pi-pool", summary(current(readConfig())));
+    if (accountId()) { const cfg = readConfig(); ctx.ui.setStatus("pi-pool", summary(current(cfg), cfg)); }
   };
 
   pi.on("session_start", async (_event, ctx) => updateStatus(ctx));
@@ -151,7 +158,7 @@ export default function (pi: ExtensionAPI) {
       const now = Date.now();
       const lines = accounts(config).map((a) => {
         const state = !a.enabled ? "disabled" : a.cooldownUntil && a.cooldownUntil > now ? `cooldown until ${format(a.cooldownUntil)}` : a.usage?.limitReached ? "limit" : "ready";
-        return `${a.id}: ${state} · ${summary(a).replace(/^acct [^ ]+ ·?\s*/, "")}`;
+        return `${a.id}: ${state} · ${summary(a, config).replace(/^acct [^ ]+ ·?\s*/, "")}`;
       });
       ctx.ui.setWidget("pi-pool-status", lines);
       ctx.ui.notify("pi-pool status shown above editor", "info");

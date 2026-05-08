@@ -1,0 +1,12 @@
+FROM node:20-bookworm-slim
+WORKDIR /repo
+COPY . .
+RUN npm install -g @earendil-works/pi-coding-agent
+RUN npm install -g .
+ENV HOME=/tmp/pi-real-home PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 PI_OFFLINE=1
+RUN pi --version
+RUN pi install .
+RUN pi list | grep -E "pi-account-pool|/repo"
+# Verify Pi can resolve the extension flag path without needing model auth.
+RUN pi --no-extensions -e ./extensions/account-pool.ts --version
+CMD ["bash", "-lc", "pi list"]
