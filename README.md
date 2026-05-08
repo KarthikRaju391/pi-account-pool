@@ -108,6 +108,8 @@ All profiles share one session directory by default:
 
 Pi already organizes sessions by working directory/codebase, so project histories continue to be codebase-specific while being usable from any account profile.
 
+`pi-pool` preserves the exact directory path you launch it from. This matters if you sometimes enter a repo through a symlink or alternate path: Pi treats `/real/path/repo` and `/symlink/path/repo` as different session locations. To resume an existing session, launch `pi-pool -c` from the same path string you used with normal `pi`.
+
 ## Config
 
 Default config path:

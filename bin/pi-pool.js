@@ -322,7 +322,10 @@ function printStatus(cfg, p) {
 function findAcct(p, id) { const a = p.accounts.find((x) => String(x.id) === String(id)); if (!a) throw new Error(`Unknown account '${id}'`); return a; }
 function launchPi(cfg, p, acct, piArgs) {
   acct.lastUsedAt = now(); save(cfg);
-  let cwd = process.cwd(); try { cwd = fs.realpathSync(cwd); } catch {}
+  // Preserve the exact cwd string the user launched from. Pi keys session history by
+  // working-directory path, so resolving symlinks here can make existing sessions
+  // appear missing when normal `pi` was launched from the symlinked path.
+  const cwd = process.cwd();
   console.error(`[pi-pool] provider=${cfg.activeProvider} account=${acct.id} ${usageSummary(acct)}`);
   console.error(`[pi-pool] dir=${accountDir(p, acct)}`);
   console.error(`[pi-pool] shared sessions=${cfg.sharedSessionDir}`);
