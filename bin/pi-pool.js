@@ -371,7 +371,7 @@ Examples:
 async function main() {
   const raw = process.argv.slice(2);
   const cmd = raw[0];
-  if (!cmd || cmd.startsWith('-') && !['--help','-h'].includes(cmd)) {
+  if (!cmd) {
     const cfg = load(), p = provider(cfg);
     await refreshUsage(cfg, p, null, { quiet: false });
     const acct = choose(p);

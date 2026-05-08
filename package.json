@@ -1,6 +1,6 @@
 {
   "name": "pi-account-pool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Account-profile pooling for the pi coding agent: choose the subscription account with available usage and show quota in the status bar.",
   "keywords": [
     "pi-package",
