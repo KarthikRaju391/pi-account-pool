@@ -80,6 +80,13 @@ const doctor = run(['doctor']);
 assert.match(doctor.stdout, /No obvious issues found/);
 assert.equal(logs().length, 0);
 
+run(['pin', 'one']);
+const pinnedWhich = run(['--which']);
+assert.equal(pinnedWhich.stdout.trim(), 'one');
+run(['unpin']);
+const autoWhich = run(['--which']);
+assert.equal(autoWhich.stdout.trim(), 'two');
+
 // Normal launch picks the best account and forwards args to pi.
 run(['-c']);
 const [launch] = logs();

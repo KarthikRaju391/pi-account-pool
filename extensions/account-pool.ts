@@ -25,7 +25,7 @@ type Account = {
 type PoolConfig = {
   activeProvider?: string;
   defaultCooldownMinutes?: number;
-  providers?: Record<string, { type?: string; labels?: { primary?: string; secondary?: string }; accounts: Account[] }>;
+  providers?: Record<string, { type?: string; labels?: { primary?: string; secondary?: string }; pinnedAccount?: string; accounts: Account[] }>;
   // Legacy prototype shape:
   accounts?: Account[];
 };
@@ -162,6 +162,45 @@ export default function (pi: ExtensionAPI) {
       });
       ctx.ui.setWidget("pi-pool-status", lines);
       ctx.ui.notify("pi-pool status shown above editor", "info");
+    }
+  });
+
+  pi.registerCommand("pool-pin", {
+    description: "Pin an account for the next pi-pool launch. Usage: /pool-pin <account-id>",
+    handler: async (args, ctx) => {
+      const id = args?.trim();
+      const config = readConfig();
+      const provider = config?.providers?.[providerName()];
+      if (!id || !config || !provider) return ctx.ui.notify("Usage: /pool-pin <account-id>", "error");
+      const account = provider.accounts.find((a) => String(a.id) === id);
+      if (!account) return ctx.ui.notify(`pi-pool: unknown account ${id}`, "error");
+      provider.pinnedAccount = id;
+      writeConfig(config);
+      ctx.ui.notify(`pi-pool: pinned ${providerName()}/${id}. Restart or run pi-pool -c to use it.`, "info");
+    }
+  });
+
+  pi.registerCommand("pool-unpin", {
+    description: "Clear the pinned account for the current provider",
+    handler: async (_args, ctx) => {
+      const config = readConfig();
+      const provider = config?.providers?.[providerName()];
+      if (!config || !provider) return ctx.ui.notify("pi-pool: no provider config found", "error");
+      delete provider.pinnedAccount;
+      writeConfig(config);
+      ctx.ui.notify(`pi-pool: cleared pinned account for ${providerName()}`, "info");
+    }
+  });
+
+  pi.registerCommand("pool-provider", {
+    description: "Set active provider for next pi-pool launch. Usage: /pool-provider <provider-name>",
+    handler: async (args, ctx) => {
+      const name = args?.trim();
+      const config = readConfig();
+      if (!name || !config?.providers?.[name]) return ctx.ui.notify(`Usage: /pool-provider <${Object.keys(config?.providers || {}).join("|") || "provider"}>`, "error");
+      config.activeProvider = name;
+      writeConfig(config);
+      ctx.ui.notify(`pi-pool: active provider set to ${name}. Restart or run pi-pool -c to use it.`, "info");
     }
   });
 

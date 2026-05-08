@@ -99,6 +99,8 @@ pi-pool account work -c
 Mark cooldown manually:
 
 ```bash
+pi-pool pin work       # prefer this account on future launches
+pi-pool unpin
 pi-pool cooldown work 60
 ```
 
@@ -106,6 +108,9 @@ Inside Pi:
 
 ```txt
 /pool-status
+/pool-pin work        # use this account on the next pi-pool launch
+/pool-unpin
+/pool-provider openai-codex
 /pool-cooldown 60
 ```
 
@@ -273,6 +278,14 @@ Use:
 pi-pool doctor
 pi-pool auth-status
 ```
+
+Pool switching from inside Pi:
+
+- `/pool-pin <account>` pins an account for the next `pi-pool` launch.
+- `/pool-unpin` returns to automatic account selection.
+- `/pool-provider <name>` changes the active provider for the next launch.
+
+The currently running Pi process cannot swap auth profiles in-place because `PI_CODING_AGENT_DIR` is chosen before Pi starts. After pinning/switching, restart Pi or run `pi-pool -c` from the same project to continue with the selected pool/account.
 
 `doctor` checks the active provider, configured accounts, missing auth files, and the project session directory for the current cwd. `auth-status` lists each account's `auth.json` path and whether auth is present.
 

@@ -305,6 +305,13 @@ function isLowUsage(acct) {
   return (Number.isFinite(u.primaryUsedPercent) && u.primaryUsedPercent >= lowUsageWarningPercent) || (Number.isFinite(u.secondaryUsedPercent) && u.secondaryUsedPercent >= lowUsageWarningPercent);
 }
 function eligible(acct) { return acct.enabled !== false && !cooldownActive(acct) && !isLimitReached(acct); }
+function choosePinnedOrBest(p) {
+  if (p.pinnedAccount) {
+    const pinned = p.accounts.find((a) => String(a.id) === String(p.pinnedAccount));
+    if (pinned && eligible(pinned)) return pinned;
+  }
+  return choose(p);
+}
 function score(acct) {
   const u = acct.usage || {};
   const p = Number.isFinite(u.primaryUsedPercent) ? 100 - u.primaryUsedPercent : 50;
@@ -347,6 +354,7 @@ function printStatus(cfg, p) {
   console.log(`Provider: ${cfg.activeProvider}`);
   console.log(`Sessions: ${cfg.sharedSessionDir}`);
   console.log(`Strategy: ${cfg.strategy}`);
+  if (p.pinnedAccount) console.log(`Pinned:   ${p.pinnedAccount}`);
   console.log('');
   const labels = usageLabels(p);
   console.log(`Acct  State     ${labels.primary.padEnd(29)}  ${labels.secondary.padEnd(28)}  Note`);
@@ -379,6 +387,23 @@ function launchPi(cfg, p, acct, piArgs) {
   process.exit(result.status ?? 0);
 }
 
+function pinAccount(cfg, p, id) {
+  findAcct(p, id);
+  p.pinnedAccount = String(id);
+  save(cfg);
+  console.log(`Pinned ${cfg.activeProvider}/${id}. Restart or run pi-pool -c to use it.`);
+}
+function unpinAccount(cfg, p) {
+  delete p.pinnedAccount;
+  save(cfg);
+  console.log(`Cleared pinned account for ${cfg.activeProvider}.`);
+}
+function switchProvider(cfg, name) {
+  provider(cfg, name);
+  cfg.activeProvider = name;
+  save(cfg);
+  console.log(`Active provider set to ${name}. Restart or run pi-pool -c to use it.`);
+}
 function authStatus(cfg, p) {
   console.log(`Provider: ${cfg.activeProvider}`);
   console.log('Acct  Auth     Path');
@@ -440,6 +465,8 @@ Usage:
   pi-pool doctor
   pi-pool which
   pi-pool account <id> [pi args...]
+  pi-pool pin <id> | unpin
+  pi-pool provider <name>
   pi-pool cooldown <id> [minutes]
   pi-pool enable <id> | disable <id> | clear-cooldown <id>
   pi-pool [pi args...]
@@ -457,7 +484,7 @@ async function main() {
   if (!cmd) {
     const cfg = load(), p = provider(cfg);
     await refreshUsage(cfg, p, null, { quiet: true });
-    const acct = choose(p);
+    const acct = choosePinnedOrBest(p);
     if (!acct) { printStatus(cfg, p); console.error('\nNo ready accounts.'); process.exit(2); }
     return launchPi(cfg, p, acct, raw);
   }
@@ -468,8 +495,11 @@ async function main() {
   if (cmd === 'auth-status' || cmd === '--auth-status') return authStatus(cfg, p);
   if (cmd === 'doctor' || cmd === '--doctor') { const code = doctor(cfg, p); process.exitCode = code; return; }
   if (cmd === 'usage' || cmd === '--usage') { const id = raw[1]; if (id) findAcct(p, id); await refreshUsage(cfg, p, id ? [id] : null, { force: true }); return printStatus(cfg, p); }
-  if (cmd === 'which' || cmd === '--which') { await refreshUsage(cfg, p, null, { quiet: true }); const acct = choose(p); if (!acct) process.exit(2); console.log(acct.id); return; }
+  if (cmd === 'which' || cmd === '--which') { await refreshUsage(cfg, p, null, { quiet: true }); const acct = choosePinnedOrBest(p); if (!acct) process.exit(2); console.log(acct.id); return; }
   if (cmd === 'login' || cmd === '--login') return launchPi(cfg, p, findAcct(p, raw[1]), []);
+  if (cmd === 'pin' || cmd === '--pin') return pinAccount(cfg, p, raw[1]);
+  if (cmd === 'unpin' || cmd === '--unpin') return unpinAccount(cfg, p);
+  if (cmd === 'provider' || cmd === '--provider') return switchProvider(cfg, raw[1]);
   if (cmd === 'account' || cmd === '--account') { const acct = findAcct(p, raw[1]); await refreshUsage(cfg, p, [String(acct.id)], { quiet: true }); return launchPi(cfg, p, acct, raw.slice(2)); }
   if (['enable','disable','clear-cooldown'].includes(cmd) || ['--enable','--disable','--clear-cooldown'].includes(cmd)) {
     const c = cmd.replace(/^--/, ''); const acct = findAcct(p, raw[1]);
@@ -479,7 +509,7 @@ async function main() {
   if (cmd === 'cooldown' || cmd === '--cooldown') { const acct = findAcct(p, raw[1]); const minutes = Number(raw[2] || cfg.defaultCooldownMinutes); acct.cooldownUntil = now() + minutes * 60_000; save(cfg); return printStatus(cfg, p); }
   // Unknown command: pass through to pi.
   await refreshUsage(cfg, p, null, { quiet: true });
-  const acct = choose(p);
+  const acct = choosePinnedOrBest(p);
   if (!acct) { printStatus(cfg, p); process.exit(2); }
   return launchPi(cfg, p, acct, raw);
 }
