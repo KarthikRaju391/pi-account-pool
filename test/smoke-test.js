@@ -1,9 +1,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const HOME = process.env.HOME;
+// Always sandbox the smoke test, even when run directly on a developer machine.
+// Do not use the caller's real HOME or ~/.pi/account-pool.json.
+const HOME = process.env.PI_POOL_TEST_HOME || fs.mkdtempSync(path.join(os.tmpdir(), 'pi-account-pool-smoke-'));
 const repo = process.cwd();
 const logFile = path.join(HOME, 'fake-pi-log.jsonl');
 const configFile = path.join(HOME, '.pi', 'account-pool.json');
