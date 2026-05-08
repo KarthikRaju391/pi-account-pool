@@ -376,7 +376,7 @@ async function main() {
   const cmd = raw[0];
   if (!cmd) {
     const cfg = load(), p = provider(cfg);
-    await refreshUsage(cfg, p, null, { quiet: false });
+    await refreshUsage(cfg, p, null, { quiet: true });
     const acct = choose(p);
     if (!acct) { printStatus(cfg, p); console.error('\nNo ready accounts.'); process.exit(2); }
     return launchPi(cfg, p, acct, raw);
@@ -396,7 +396,7 @@ async function main() {
   }
   if (cmd === 'cooldown' || cmd === '--cooldown') { const acct = findAcct(p, raw[1]); const minutes = Number(raw[2] || cfg.defaultCooldownMinutes); acct.cooldownUntil = now() + minutes * 60_000; save(cfg); return printStatus(cfg, p); }
   // Unknown command: pass through to pi.
-  await refreshUsage(cfg, p, null, { quiet: false });
+  await refreshUsage(cfg, p, null, { quiet: true });
   const acct = choose(p);
   if (!acct) { printStatus(cfg, p); process.exit(2); }
   return launchPi(cfg, p, acct, raw);
