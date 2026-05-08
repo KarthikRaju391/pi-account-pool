@@ -39,6 +39,16 @@ npm link
 pi install .
 ```
 
+## Sandboxed smoke test
+
+The repo includes a Docker smoke test that simulates a fresh machine, installs the package globally, replaces `pi` with a fake recorder binary, configures a mock provider, verifies usage-based account selection, and checks that Pi receives the expected account/session environment.
+
+```bash
+npm run test:docker
+```
+
+The test does not use real provider credentials or your local Pi config.
+
 ## Quick start
 
 Create a pool for a provider and choose the account labels you want to use:

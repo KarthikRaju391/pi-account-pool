@@ -1,6 +1,6 @@
 {
   "name": "pi-account-pool",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Account-profile pooling for the pi coding agent: choose the subscription account with available usage and show quota in the status bar.",
   "keywords": [
     "pi-package",
@@ -17,6 +17,10 @@
   "type": "commonjs",
   "bin": {
     "pi-pool": "./bin/pi-pool.js"
+  },
+  "scripts": {
+    "test:smoke": "node test/smoke-test.js",
+    "test:docker": "bash test/docker-smoke.sh"
   },
   "files": [
     "bin",

@@ -1,0 +1,7 @@
+FROM node:20-bookworm-slim
+WORKDIR /repo
+COPY . .
+RUN npm install -g .
+RUN cp test/fake-pi.js /usr/local/bin/pi && chmod +x /usr/local/bin/pi
+ENV HOME=/tmp/pi-pool-home
+CMD ["node", "test/smoke-test.js"]
