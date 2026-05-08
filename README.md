@@ -39,21 +39,20 @@ npm link
 pi install .
 ```
 
-## Quick start: OpenAI ChatGPT/Codex subscriptions
+## Quick start
 
-Create 10 account profiles named `1`-`9` and `a`:
+Create a pool for a provider and choose the account labels you want to use:
 
 ```bash
-pi-pool setup openai-codex --accounts 1,2,3,4,5,6,7,8,9,a
+pi-pool setup openai-codex --accounts work,personal,backup
 ```
 
-Log into each profile once:
+Each label gets its own Pi auth/config profile under `~/.pi/accounts/`. Log into each profile once:
 
 ```bash
-pi-pool login 1   # inside Pi, run /login and choose OpenAI / ChatGPT subscription
-pi-pool login 2
-# ...
-pi-pool login a
+pi-pool login work      # inside Pi, run /login and authenticate the matching account
+pi-pool login personal
+pi-pool login backup
 ```
 
 Then use Pi through the launcher:
@@ -68,21 +67,21 @@ pi-pool "fix the failing tests"
 Check usage and selection:
 
 ```bash
-pi-pool usage
-pi-pool status
-pi-pool which
+pi-pool usage       # or: pi-pool --usage
+pi-pool status      # or: pi-pool --status
+pi-pool which       # or: pi-pool --which
 ```
 
-Force an account:
+Force a specific account:
 
 ```bash
-pi-pool account 3 -c
+pi-pool account work -c
 ```
 
 Mark cooldown manually:
 
 ```bash
-pi-pool cooldown 3 60
+pi-pool cooldown work 60
 ```
 
 Inside Pi:
@@ -94,11 +93,11 @@ Inside Pi:
 
 ## How sessions work
 
-Each account has its own auth/config directory, e.g.:
+Each account has its own auth/config directory, for example:
 
 ```txt
-~/.pi/accounts/openai-1
-~/.pi/accounts/openai-2
+~/.pi/accounts/openai-work
+~/.pi/accounts/openai-personal
 ```
 
 All profiles share one session directory by default:
@@ -123,7 +122,7 @@ Override with:
 PI_POOL_CONFIG=/path/to/config.json pi-pool status
 ```
 
-Simplified OpenAI config shape:
+Simplified OpenAI/Codex config shape:
 
 ```json
 {
@@ -138,7 +137,10 @@ Simplified OpenAI config shape:
       "type": "openai-codex",
       "authKey": "openai-codex",
       "accountDirTemplate": "~/.pi/accounts/openai-{{id}}",
-      "accounts": [{ "id": "1", "enabled": true }],
+      "accounts": [
+        { "id": "work", "enabled": true },
+        { "id": "personal", "enabled": true }
+      ],
       "usage": {
         "type": "http",
         "url": "https://chatgpt.com/backend-api/wham/usage",
@@ -148,6 +150,7 @@ Simplified OpenAI config shape:
           "User-Agent": "codex-cli"
         },
         "paths": {
+          "allowed": "rate_limit.allowed",
           "primaryUsedPercent": "rate_limit.primary_window.used_percent",
           "primaryResetAfterSeconds": "rate_limit.primary_window.reset_after_seconds",
           "secondaryUsedPercent": "rate_limit.secondary_window.used_percent",
@@ -178,7 +181,10 @@ Usage can be configured as generic HTTP:
       "type": "my-provider",
       "authKey": "my-provider-auth-key-in-auth-json",
       "accountDirTemplate": "~/.pi/accounts/my-provider-{{id}}",
-      "accounts": [{ "id": "1", "enabled": true }, { "id": "2", "enabled": true }],
+      "accounts": [
+        { "id": "primary", "enabled": true },
+        { "id": "secondary", "enabled": true }
+      ],
       "usage": {
         "type": "http",
         "url": "https://example.com/usage",
@@ -186,6 +192,7 @@ Usage can be configured as generic HTTP:
           "Authorization": "Bearer {{auth.access}}"
         },
         "paths": {
+          "allowed": "limits.allowed",
           "primaryUsedPercent": "limits.short.used_percent",
           "primaryResetAfterSeconds": "limits.short.reset_after_seconds",
           "secondaryUsedPercent": "limits.weekly.used_percent",
@@ -209,7 +216,7 @@ Or as a script:
 }
 ```
 
-The script must print JSON. Use `paths` if your script returns nested provider-native JSON; or return fields matching the OpenAI-normalized concepts and set matching paths.
+The script must print JSON. Use `paths` if your script returns nested provider-native JSON; or return fields matching the normalized concepts and set matching paths.
 
 If a provider has no usage endpoint, set:
 
@@ -218,14 +225,6 @@ If a provider has no usage endpoint, set:
 ```
 
 The extension will still record cooldowns from 429 responses and manual `/pool-cooldown` commands.
-
-## OpenAI endpoint caveat
-
-The OpenAI ChatGPT/Codex usage endpoint used by the built-in adapter is an internal ChatGPT endpoint (`/backend-api/wham/usage`) observed in OpenAI Codex and related tools. It is not a public stable API and may change.
-
-## License
-
-MIT
 
 ## Status states
 
@@ -238,4 +237,12 @@ MIT
 - `disabled` — manually disabled.
 - `unknown` — no usage has been fetched yet.
 
-Fresh usage checks override old heuristic cooldowns. For example, if an account was previously cooled down but the provider now reports `allowed: true`, `pi-pool usage`/normal launch clears the old cooldown.
+Fresh usage checks override old heuristic cooldowns. For example, if an account was previously cooled down but the provider now reports `allowed: true`, `pi-pool usage` or normal launch clears the old cooldown.
+
+## OpenAI endpoint caveat
+
+The OpenAI ChatGPT/Codex usage endpoint used by the built-in adapter is an internal ChatGPT endpoint (`/backend-api/wham/usage`) observed in OpenAI Codex and related tools. It is not a public stable API and may change.
+
+## License
+
+MIT
