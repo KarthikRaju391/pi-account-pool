@@ -248,10 +248,15 @@ async function refreshUsageForAccount(cfg, p, acct, force = false) {
   }
 }
 async function refreshUsage(cfg, p, ids = null, opts = {}) {
-  for (const acct of p.accounts.filter((a) => !ids || ids.includes(String(a.id)))) {
-    if (!opts.quiet) process.stderr.write(`[pi-pool] usage ${p.type || cfg.activeProvider}/${acct.id}... `);
+  const selected = p.accounts.filter((a) => !ids || ids.includes(String(a.id)));
+  await Promise.all(selected.map(async (acct) => {
     await refreshUsageForAccount(cfg, p, acct, opts.force);
-    if (!opts.quiet) process.stderr.write(`${usageSummary(acct)}\n`);
+    return acct;
+  }));
+  if (!opts.quiet) {
+    for (const acct of selected) {
+      process.stderr.write(`[pi-pool] usage ${p.type || cfg.activeProvider}/${acct.id}: ${usageSummary(acct)}\n`);
+    }
   }
   save(cfg);
 }
