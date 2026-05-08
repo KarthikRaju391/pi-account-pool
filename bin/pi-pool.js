@@ -12,7 +12,7 @@ const defaultAccountsRoot = path.join(home, '.pi', 'accounts');
 const defaultSharedSessionDir = path.join(home, '.pi', 'agent', 'sessions');
 const defaultIds = ['1','2','3','4','5','6','7','8','9','a'];
 const openAiClientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const nearLimitPercent = 98;
+const lowUsageWarningPercent = 95;
 
 function now() { return Date.now(); }
 function mkdirp(p) { fs.mkdirSync(p, { recursive: true, mode: 0o700 }); }
@@ -77,6 +77,7 @@ function defaultOpenAiProvider(ids = defaultIds) {
         primaryResetAfterSeconds: 'rate_limit.primary_window.reset_after_seconds',
         secondaryUsedPercent: 'rate_limit.secondary_window.used_percent',
         secondaryResetAfterSeconds: 'rate_limit.secondary_window.reset_after_seconds',
+        allowed: 'rate_limit.allowed',
         limitReached: 'rate_limit.limit_reached',
         limitReachedType: 'rate_limit_reached_type.type',
         creditsOverageReached: 'credits.overage_limit_reached',
@@ -141,6 +142,8 @@ function ensureDirs(cfg) {
     for (const acct of p.accounts || []) {
       const dir = accountDir(p, acct);
       acct.dir = dir;
+      migrateStoredUsage(p, acct);
+      if (acct.cooldownUntil && acct.cooldownUntil <= now()) acct.cooldownUntil = null;
       mkdirp(dir);
       for (const name of ['settings.json', 'AGENTS.md', 'APPEND_SYSTEM.md', 'SYSTEM.md', 'models.json']) ensureSymlinkIfExists(path.join(baseAgent, name), path.join(dir, name));
       for (const name of ['extensions', 'skills', 'prompts', 'themes']) ensureSymlinkIfExists(path.join(baseAgent, name), path.join(dir, name));
@@ -175,6 +178,7 @@ function normalizeUsage(payload, p, acct) {
     primaryResetAfterSeconds: Number(getPath(payload, paths.primaryResetAfterSeconds)),
     secondaryUsedPercent: Number(getPath(payload, paths.secondaryUsedPercent)),
     secondaryResetAfterSeconds: Number(getPath(payload, paths.secondaryResetAfterSeconds)),
+    allowed: getPath(payload, paths.allowed),
     limitReached: Boolean(getPath(payload, paths.limitReached)),
     limitReachedType: getPath(payload, paths.limitReachedType),
     error: null
@@ -185,6 +189,16 @@ function normalizeUsage(payload, p, acct) {
   acct.usageFetchedAt = u.fetchedAt;
   acct.usageError = null;
   return u;
+}
+function migrateStoredUsage(p, acct) {
+  if (!acct.usage || acct.usage.raw || Object.prototype.hasOwnProperty.call(acct.usage, 'primaryUsedPercent')) return;
+  // Migrate the original prototype config, which stored provider-native usage JSON directly.
+  if (acct.usage.rate_limit || acct.usage.rateLimit || acct.usage.credits || acct.usage.spend_control || acct.usage.rate_limit_reached_type) {
+    const fetchedAt = acct.usageFetchedAt || now();
+    normalizeUsage(acct.usage, p, acct);
+    acct.usageFetchedAt = fetchedAt;
+    acct.usage.fetchedAt = fetchedAt;
+  }
 }
 async function fetchHttpUsage(p, acct, auth) {
   const usage = p.usage;
@@ -215,11 +229,19 @@ async function refreshUsageForAccount(cfg, p, acct, force = false) {
     const u = normalizeUsage(payload, p, acct);
     if (isLimitReached(acct)) {
       const resets = [u.primaryResetAfterSeconds, u.secondaryResetAfterSeconds].filter((v) => Number.isFinite(v) && v > 0);
-      const reset = Math.max(60, resets.length ? Math.min(...resets) : cfg.defaultCooldownMinutes * 60);
-      acct.cooldownUntil = now() + reset * 1000;
+      if (resets.length) {
+        const reset = Math.max(60, Math.min(...resets));
+        acct.cooldownUntil = now() + reset * 1000;
+      } else {
+        // No reset window means this is a hard provider/account state (for example credits depleted), not a timed cooldown.
+        acct.cooldownUntil = null;
+      }
       acct.lastRateLimitAt = now();
       acct.lastRateLimitReason = 'usage endpoint limit reached';
-    } else if (acct.cooldownUntil && acct.cooldownUntil <= now()) acct.cooldownUntil = null;
+    } else {
+      // A fresh usage check says the provider allows this account, so clear any older heuristic/manual cooldown.
+      acct.cooldownUntil = null;
+    }
   } catch (e) {
     acct.usageError = e.message || String(e);
     acct.usageFetchedAt = now();
@@ -233,12 +255,18 @@ async function refreshUsage(cfg, p, ids = null, opts = {}) {
   }
   save(cfg);
 }
+function cooldownActive(acct) { return Boolean(acct.cooldownUntil && acct.cooldownUntil > now()); }
 function isLimitReached(acct) {
   const u = acct.usage;
   if (!u) return false;
-  return Boolean(u.limitReached) || (Number.isFinite(u.primaryUsedPercent) && u.primaryUsedPercent >= nearLimitPercent) || (Number.isFinite(u.secondaryUsedPercent) && u.secondaryUsedPercent >= nearLimitPercent);
+  return Boolean(u.limitReached) || u.allowed === false;
 }
-function eligible(acct) { return acct.enabled !== false && (!acct.cooldownUntil || acct.cooldownUntil <= now()) && !isLimitReached(acct); }
+function isLowUsage(acct) {
+  const u = acct.usage;
+  if (!u || isLimitReached(acct)) return false;
+  return (Number.isFinite(u.primaryUsedPercent) && u.primaryUsedPercent >= lowUsageWarningPercent) || (Number.isFinite(u.secondaryUsedPercent) && u.secondaryUsedPercent >= lowUsageWarningPercent);
+}
+function eligible(acct) { return acct.enabled !== false && !cooldownActive(acct) && !isLimitReached(acct); }
 function score(acct) {
   const u = acct.usage || {};
   const p = Number.isFinite(u.primaryUsedPercent) ? 100 - u.primaryUsedPercent : 50;
@@ -256,22 +284,40 @@ function usageSummary(acct) {
   if (!u) return fs.existsSync(path.join(acct.dir || '', 'auth.json')) ? 'usage unknown' : 'not logged in';
   if (u.limitReachedType && !Number.isFinite(u.primaryUsedPercent) && !Number.isFinite(u.secondaryUsedPercent)) return `limit: ${u.limitReachedType}`;
   const parts = [];
-  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`primary ${Math.round(u.primaryUsedPercent)}% reset ${relSeconds(u.primaryResetAfterSeconds)}`);
-  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`secondary ${Math.round(u.secondaryUsedPercent)}% reset ${relSeconds(u.secondaryResetAfterSeconds)}`);
-  return parts.join(' | ') || 'usage unknown';
+  if (Number.isFinite(u.primaryUsedPercent)) parts.push(`primary ${Math.round(u.primaryUsedPercent)}% used, resets in ${relSeconds(u.primaryResetAfterSeconds)}`);
+  if (Number.isFinite(u.secondaryUsedPercent)) parts.push(`weekly ${Math.round(u.secondaryUsedPercent)}% used, resets in ${relSeconds(u.secondaryResetAfterSeconds)}`);
+  return parts.join('; ') || 'usage unknown';
+}
+function accountState(a) {
+  if (a.enabled === false) return 'disabled';
+  if (cooldownActive(a)) return 'cooldown';
+  if (isLimitReached(a)) return 'limited';
+  if (isLowUsage(a)) return 'low';
+  if (!a.usage && !a.usageError) return 'unknown';
+  return 'ready';
+}
+function stateNote(a) {
+  if (cooldownActive(a)) return `available in ${relSeconds((a.cooldownUntil - now()) / 1000)}`;
+  if (isLimitReached(a)) return a.usage?.limitReachedType || 'provider says limit reached';
+  if (isLowUsage(a)) return 'usable, but close to limit';
+  return a.usageError || '';
 }
 function printStatus(cfg, p) {
-  console.log(`config: ${configFile}`);
-  console.log(`provider: ${cfg.activeProvider}`);
-  console.log(`shared sessions: ${cfg.sharedSessionDir}`);
-  console.log(`strategy: ${cfg.strategy}`);
+  console.log(`Config:   ${configFile}`);
+  console.log(`Provider: ${cfg.activeProvider}`);
+  console.log(`Sessions: ${cfg.sharedSessionDir}`);
+  console.log(`Strategy: ${cfg.strategy}`);
   console.log('');
-  console.log('account  state       cooldown until              last usage fetch            usage');
-  console.log('-------  ----------  --------------------------  --------------------------  -----');
+  console.log('Acct  State     Primary window                 Weekly/secondary              Note');
+  console.log('----  --------  -----------------------------  ----------------------------  ------------------------------');
   for (const a of p.accounts) {
-    const state = a.enabled === false ? 'disabled' : (a.cooldownUntil && a.cooldownUntil > now()) ? 'cooldown' : isLimitReached(a) ? 'limit' : 'ready';
-    console.log(`${String(a.id).padEnd(7)}  ${state.padEnd(10)}  ${iso(a.cooldownUntil).padEnd(26)}  ${iso(a.usageFetchedAt).padEnd(26)}  ${usageSummary(a)}`);
+    if (a.cooldownUntil && a.cooldownUntil <= now()) a.cooldownUntil = null;
+    const u = a.usage || {};
+    const primary = Number.isFinite(u.primaryUsedPercent) ? `${Math.round(u.primaryUsedPercent)}% used, reset ${relSeconds(u.primaryResetAfterSeconds)}` : '-';
+    const secondary = Number.isFinite(u.secondaryUsedPercent) ? `${Math.round(u.secondaryUsedPercent)}% used, reset ${relSeconds(u.secondaryResetAfterSeconds)}` : '-';
+    console.log(`${String(a.id).padEnd(4)}  ${accountState(a).padEnd(8)}  ${primary.padEnd(29)}  ${secondary.padEnd(28)}  ${stateNote(a)}`);
   }
+  save(cfg);
 }
 function findAcct(p, id) { const a = p.accounts.find((x) => String(x.id) === String(id)); if (!a) throw new Error(`Unknown account '${id}'`); return a; }
 function launchPi(cfg, p, acct, piArgs) {

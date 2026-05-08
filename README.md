@@ -226,3 +226,16 @@ The OpenAI ChatGPT/Codex usage endpoint used by the built-in adapter is an inter
 ## License
 
 MIT
+
+## Status states
+
+`pi-pool status` uses these states:
+
+- `ready` — provider usage says the account is usable.
+- `low` — usable, but one window is above the warning threshold.
+- `cooldown` — provider returned a reset window; the account will be retried after that reset.
+- `limited` — provider says the account is not usable and did not provide a reset window, for example depleted workspace credits.
+- `disabled` — manually disabled.
+- `unknown` — no usage has been fetched yet.
+
+Fresh usage checks override old heuristic cooldowns. For example, if an account was previously cooled down but the provider now reports `allowed: true`, `pi-pool usage`/normal launch clears the old cooldown.
