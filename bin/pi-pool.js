@@ -134,6 +134,10 @@ function provider(cfg, name = cfg.activeProvider) {
 }
 function accountDir(p, acct) { return expandHome(acct.dir || renderTemplate(p.accountDirTemplate || path.join(defaultAccountsRoot, `${p.type || 'account'}-{{id}}`), { account: acct, id: acct.id })); }
 function authPath(p, acct) { return path.join(accountDir(p, acct), 'auth.json'); }
+function sessionDirForCwd(sharedSessionRoot, cwd) {
+  const safePath = `--${cwd.replace(/^[\/\\]/, '').replace(/[\/\\:]/g, '-')}--`;
+  return path.join(expandHome(sharedSessionRoot || defaultSharedSessionDir), safePath);
+}
 function ensureSymlinkIfExists(src, dst) { if (!fs.existsSync(src) || fs.existsSync(dst)) return; try { fs.symlinkSync(src, dst); } catch {} }
 function ensureDirs(cfg) {
   mkdirp(cfg.sharedSessionDir);
@@ -331,10 +335,13 @@ function launchPi(cfg, p, acct, piArgs) {
   // working-directory path, so resolving symlinks here can make existing sessions
   // appear missing when normal `pi` was launched from the symlinked path.
   const cwd = process.cwd();
+  const projectSessionDir = sessionDirForCwd(cfg.sharedSessionDir, cwd);
+  mkdirp(projectSessionDir);
   console.error(`[pi-pool] provider=${cfg.activeProvider} account=${acct.id} ${usageSummary(acct)}`);
   console.error(`[pi-pool] dir=${accountDir(p, acct)}`);
-  console.error(`[pi-pool] shared sessions=${cfg.sharedSessionDir}`);
-  const env = { ...process.env, PI_CODING_AGENT_DIR: accountDir(p, acct), PI_CODING_AGENT_SESSION_DIR: cfg.sharedSessionDir, PI_POOL_PROVIDER: cfg.activeProvider, PI_POOL_ACCOUNT_ID: String(acct.id), PI_POOL_CONFIG: configFile };
+  console.error(`[pi-pool] shared session root=${cfg.sharedSessionDir}`);
+  console.error(`[pi-pool] project session dir=${projectSessionDir}`);
+  const env = { ...process.env, PI_CODING_AGENT_DIR: accountDir(p, acct), PI_CODING_AGENT_SESSION_DIR: projectSessionDir, PI_POOL_PROVIDER: cfg.activeProvider, PI_POOL_ACCOUNT_ID: String(acct.id), PI_POOL_CONFIG: configFile };
   const result = spawnSync('pi', piArgs, { stdio: 'inherit', env, cwd });
   if (result.error) { console.error(`[pi-pool] failed to launch pi: ${result.error.message}`); process.exit(127); }
   process.exit(result.status ?? 0);

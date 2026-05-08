@@ -100,10 +100,16 @@ Each account has its own auth/config directory, for example:
 ~/.pi/accounts/openai-personal
 ```
 
-All profiles share one session directory by default:
+All profiles share one session root by default:
 
 ```txt
 ~/.pi/agent/sessions
+```
+
+For each launch, `pi-pool` passes Pi the current codebase's project-specific session directory under that root, for example:
+
+```txt
+~/.pi/agent/sessions/--Users-you-code-project--
 ```
 
 Pi already organizes sessions by working directory/codebase, so project histories continue to be codebase-specific while being usable from any account profile.
