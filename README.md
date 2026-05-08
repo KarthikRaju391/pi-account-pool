@@ -24,8 +24,8 @@ A launcher is required because Pi's auth/config directory must be chosen before 
 ## Install from GitHub
 
 ```bash
-npm install -g github:karthiksraju/pi-account-pool
-pi install git:github.com/karthiksraju/pi-account-pool
+npm install -g github:KarthikRaju391/pi-account-pool
+pi install git:github.com/KarthikRaju391/pi-account-pool
 ```
 
 The first command installs the `pi-pool` CLI. The second installs the Pi extension.
@@ -33,7 +33,7 @@ The first command installs the `pi-pool` CLI. The second installs the Pi extensi
 For local development:
 
 ```bash
-git clone https://github.com/karthiksraju/pi-account-pool.git
+git clone https://github.com/KarthikRaju391/pi-account-pool.git
 cd pi-account-pool
 npm link
 pi install .
