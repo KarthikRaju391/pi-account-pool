@@ -1,0 +1,23 @@
+{
+  "name": "pi-account-pool",
+  "version": "0.1.0",
+  "description": "Account-profile pooling for the pi coding agent: choose the subscription account with available usage and show quota in the status bar.",
+  "keywords": ["pi-package", "pi", "coding-agent", "account-pool", "openai", "codex", "chatgpt", "claude", "copilot"],
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "pi-pool": "./bin/pi-pool.js"
+  },
+  "files": [
+    "bin",
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
